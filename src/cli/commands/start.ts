@@ -1,7 +1,7 @@
 import dns from 'node:dns';
 import { createInterface } from 'node:readline';
 import pkg from '../../../package.json';
-import { ClaudeAdapter } from '../../agent/claude/adapter';
+import { createAgent, getProviderDisplayName } from '../../agent/factory';
 import { startChannel, type BridgeChannel } from '../../bot/channel';
 import { runRegistrationWizard } from '../../bot/wizard';
 import type { Controls } from '../../commands';
@@ -76,12 +76,20 @@ export async function runStart(opts: StartOptions): Promise<void> {
 
   await preFlightChecks({ skipCheckLarkCli: opts.skipCheckLarkCli });
 
-  const agent = new ClaudeAdapter();
+  const agent = createAgent(cfg);
+  const providerName = getProviderDisplayName(cfg);
   if (!(await agent.isAvailable())) {
-    console.error('✗ 未找到 claude CLI。请先安装 Claude Code：');
-    console.error('  https://docs.anthropic.com/en/docs/claude-code/quickstart');
+    console.error(`✗ 未找到 ${agent.displayName} CLI。`);
+    if (agent.id === 'claude') {
+      console.error('  请先安装 Claude Code：');
+      console.error('  https://docs.anthropic.com/en/docs/claude-code/quickstart');
+    } else if (agent.id === 'cursor') {
+      console.error('  请先安装 Cursor CLI：');
+      console.error('  https://cursor.com/cn/docs/cli/overview');
+    }
     process.exit(1);
   }
+  console.log(`✓ 使用 ${providerName}`);
 
   const sessions = new SessionStore();
   await sessions.load();

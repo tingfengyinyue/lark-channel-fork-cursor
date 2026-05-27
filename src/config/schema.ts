@@ -141,6 +141,27 @@ export interface AppPreferences {
    * Range 100-30000; out-of-range values fall back to default.
    */
   agentStopGraceMs?: number;
+  /**
+   * CLI agent configuration. Allows switching between different AI CLI tools.
+   */
+  cli?: CliConfig;
+}
+
+export type CliProvider = 'claude' | 'cursor';
+
+export interface CliConfig {
+  /** Which CLI provider to use. Default 'claude'. */
+  provider?: CliProvider;
+  /** Claude CLI specific options */
+  claude?: {
+    binary?: string;
+  };
+  /** Cursor CLI specific options */
+  cursor?: {
+    binary?: string;
+    /** Cursor agent mode: 'agent' (default), 'plan', or 'ask' */
+    mode?: 'agent' | 'plan' | 'ask';
+  };
 }
 
 /**

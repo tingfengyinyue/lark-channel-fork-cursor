@@ -102,6 +102,7 @@ const handlers: Record<string, Handler> = {
   '/exit': handleExit,
   '/doctor': handleDoctor,
   '/reconnect': handleReconnect,
+  '/cli': handleCli,
 };
 
 /**
@@ -118,6 +119,7 @@ const ADMIN_COMMANDS = new Set([
   '/doctor',
   '/cd',
   '/ws',
+  '/cli',
 ]);
 
 function isAdminCommand(cmd: string): boolean {
@@ -1090,3 +1092,98 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
     forgetManagedCard(formMsgId);
   })();
 }
+
+async function handleCli(args: string, ctx: CommandContext): Promise<void> {
+  const { channel, msg, controls } = ctx;
+  const parts = args.trim().split(/\s+/);
+  const subCmd = parts[0]?.toLowerCase();
+
+  if (!subCmd || subCmd === 'status') {
+    // Show current CLI provider
+    const provider = controls.cfg.preferences?.cli?.provider ?? 'claude';
+    const mode = controls.cfg.preferences?.cli?.cursor?.mode;
+    let status = `当前使用: **${provider === 'claude' ? 'Claude Code' : 'Cursor Agent'}**`;
+    if (provider === 'cursor' && mode) {
+      status += `\n模式: ${mode}`;
+    }
+    await reply(ctx, status);
+    return;
+  }
+
+  if (subCmd === 'use') {
+    const provider = parts[1]?.toLowerCase();
+    if (!provider || (provider !== 'claude' && provider !== 'cursor')) {
+      await reply(ctx, '用法: `/cli use <claude|cursor>`');
+      return;
+    }
+
+    // Update config
+    const cfg = controls.cfg;
+    if (!cfg.preferences) {
+      cfg.preferences = {};
+    }
+    if (!cfg.preferences.cli) {
+      cfg.preferences.cli = {};
+    }
+    cfg.preferences.cli.provider = provider as 'claude' | 'cursor';
+
+    try {
+      await saveConfig(cfg, controls.configPath);
+      await reply(
+        ctx,
+        `✓ 已切换到 ${provider === 'claude' ? 'Claude Code' : 'Cursor Agent'}\n\n重启 bridge 后生效: \`/reconnect\``,
+      );
+      log.info('command', 'cli-switched', { provider });
+    } catch (err) {
+      log.fail('command', err, { step: 'cli.save' });
+      await reply(ctx, '❌ 保存配置失败');
+    }
+    return;
+  }
+
+  if (subCmd === 'mode') {
+    const provider = controls.cfg.preferences?.cli?.provider ?? 'claude';
+    if (provider !== 'cursor') {
+      await reply(ctx, '❌ 只有 Cursor Agent 支持模式切换');
+      return;
+    }
+
+    const mode = parts[1]?.toLowerCase();
+    if (!mode || !['agent', 'plan', 'ask'].includes(mode)) {
+      await reply(ctx, '用法: `/cli mode <agent|plan|ask>`');
+      return;
+    }
+
+    // Update config
+    const cfg = controls.cfg;
+    if (!cfg.preferences) {
+      cfg.preferences = {};
+    }
+    if (!cfg.preferences.cli) {
+      cfg.preferences.cli = {};
+    }
+    if (!cfg.preferences.cli.cursor) {
+      cfg.preferences.cli.cursor = {};
+    }
+    cfg.preferences.cli.cursor.mode = mode as 'agent' | 'plan' | 'ask';
+
+    try {
+      await saveConfig(cfg, controls.configPath);
+      await reply(ctx, `✓ Cursor 模式已设置为: ${mode}\n\n重启 bridge 后生效: \`/reconnect\``);
+      log.info('command', 'cursor-mode-changed', { mode });
+    } catch (err) {
+      log.fail('command', err, { step: 'cli-mode.save' });
+      await reply(ctx, '❌ 保存配置失败');
+    }
+    return;
+  }
+
+  await reply(
+    ctx,
+    '用法:\n' +
+      '  `/cli` 或 `/cli status` - 查看当前 CLI\n' +
+      '  `/cli use <claude|cursor>` - 切换 CLI\n' +
+      '  `/cli mode <agent|plan|ask>` - 设置 Cursor 模式',
+  );
+}
+
