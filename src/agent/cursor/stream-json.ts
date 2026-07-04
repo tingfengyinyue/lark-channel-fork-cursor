@@ -75,6 +75,6 @@ export function* translateEvent(raw: unknown): Generator<AgentEvent> {
         costUsd: evt.total_cost_usd,
       };
     }
-    yield { type: 'done', sessionId: evt.session_id };
+    yield { type: 'done', sessionId: evt.session_id, terminationReason: 'normal' };
   }
 }

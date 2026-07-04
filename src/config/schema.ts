@@ -3,9 +3,9 @@ export type TenantBrand = 'feishu' | 'lark';
 /**
  * SecretRef points at a secret stored outside this file — keeps secrets out
  * of `config.json` so backups / accidental git commits / log dumps don't
- * leak the bot's App Secret. Mirrors openclaw / lark-cli's `SecretRef`
- * shape so lark-cli's `--source lark-channel` reads it through the same
- * generic `ResolveSecretInput` pipeline as openclaw.
+ * leak the bot's App Secret. Matches lark-cli's `SecretRef` shape so
+ * `--source lark-channel` reads it through the same generic
+ * `ResolveSecretInput` pipeline.
  *
  *   - `env`:  value is in process env at `id` (optionally allowlisted via provider)
  *   - `file`: value is at the path `id` (or `provider.path` if provider config)
@@ -28,10 +28,10 @@ export interface AppCredentials {
 }
 
 /**
- * `secrets.providers` is openclaw-compatible: each named provider declares
- * how SecretRefs resolve to plaintext (env allowlist, file path, exec
- * command). Only the fields actually consumed by bridge's resolver are
- * typed here; lark-cli reads the same JSON via its richer Go types.
+ * `secrets.providers` declares how SecretRefs resolve to plaintext (env
+ * allowlist, file path, exec command). Only the fields actually consumed by
+ * bridge's resolver are typed here; lark-cli reads the same JSON via its
+ * richer Go types.
  */
 export interface ProviderConfig {
   source: 'env' | 'file' | 'exec';
@@ -67,25 +67,22 @@ export interface SecretsConfig {
  * `markdown`. See `messageReplyMigrated` for the auto-coercion logic.
  */
 export type MessageReplyMode = 'card' | 'markdown' | 'text';
+export type CotMessagesMode = 'off' | 'brief' | 'detailed';
 
 /**
- * Access control settings. All three lists default to "no restriction" when
- * empty / undefined, so existing deployments are not broken on upgrade.
- * Operators that want a hardened deployment fill these in via
- * `~/.lark-channel/config.json` (no CLI surface yet — by design, since
- * persisting the lists requires the operator to look up open_ids/chat_ids
- * out-of-band anyway).
+ * Access control settings. Empty lists are fail-closed in the v2 policy:
+ * no DM senders, no group chats, and only the runtime owner can administer
+ * the bot. Runtime owner/admin bypass is applied by the policy layer because
+ * owner identity is refreshed from Lark rather than stored in config.json.
  */
 export interface AppAccess {
-  /** open_id whitelist for who can interact with the bot (DM + group @bot).
-   * Empty/undefined = allow everyone. */
+  /** open_id allowlist for DM senders. Group senders are gated by chat. */
   allowedUsers?: string[];
-  /** chat_id whitelist for chats the bot responds in. Empty/undefined =
-   * respond in all chats it's invited to. */
+  /** chat_id allowlist for groups the bot responds in. Does not apply to p2p. */
   allowedChats?: string[];
   /** open_id list with admin privileges. Gates sensitive commands
-   * (/account, /config, /exit, /reconnect, /doctor, /cd, /ws). Empty /
-   * undefined = no admin restriction (every allowed user is an admin). */
+   * (/account, /config, /exit, /reconnect, /doctor, /cd, /ws, /doc,
+   * /invite, /remove). */
   admins?: string[];
 }
 
@@ -107,6 +104,20 @@ export interface AppPreferences {
    * text answer and want to hide the "工具调用过程".
    */
   showToolCalls?: boolean;
+  /**
+   * Model the underlying agent runs with, forwarded as `--model`. The catalog
+   * of valid values is agent-kind specific — see `agent/models.ts`. `undefined`
+   * or the `'default'` sentinel means "don't pass `--model`" so the agent
+   * CLI / account default applies. Default: unset.
+   */
+  model?: string;
+  /**
+   * Whether to send a separate Lark COT process message before the final
+   * answer. `brief` mirrors the lightweight tool/progress visibility from
+   * the legacy tool display; `detailed` also includes tool args/output.
+   * Legacy boolean/string `on` is accepted by the resolver for upgrades.
+   */
+  cotMessages?: CotMessagesMode | 'on' | 'simple';
   /**
    * Cap on concurrent claude runs across all chats / topics. Excess runs
    * queue FIFO. Default 10. Mostly relevant for topic groups where each
@@ -226,6 +237,13 @@ export function getShowToolCalls(cfg: AppConfig): boolean {
   return cfg.preferences?.showToolCalls !== false;
 }
 
+export function getCotMessages(cfg: AppConfig): CotMessagesMode {
+  const raw = cfg.preferences?.cotMessages;
+  if (raw === 'brief' || raw === 'simple') return 'brief';
+  if (raw === 'detailed' || raw === 'on') return 'detailed';
+  return 'off';
+}
+
 /** Resolve the max-concurrent-runs preference with default + sanity clamp. */
 export function getMaxConcurrentRuns(cfg: AppConfig): number {
   const raw = cfg.preferences?.maxConcurrentRuns;
@@ -241,7 +259,16 @@ export function getMaxConcurrentRuns(cfg: AppConfig): number {
  * field) inherit the new safer default automatically.
  */
 export function getRequireMentionInGroup(cfg: AppConfig): boolean {
-  return cfg.preferences?.requireMentionInGroup !== false;
+  if (cfg.preferences?.requireMentionInGroup !== undefined) {
+    return cfg.preferences.requireMentionInGroup !== false;
+  }
+  const profileAccess = (cfg as AppConfig & {
+    access?: { requireMentionInGroup?: boolean };
+  }).access;
+  if (profileAccess?.requireMentionInGroup !== undefined) {
+    return profileAccess.requireMentionInGroup;
+  }
+  return true;
 }
 
 /**
@@ -260,28 +287,6 @@ export function getAgentStopGraceMs(cfg: AppConfig): number {
   const raw = cfg.preferences?.agentStopGraceMs;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 5000;
   return Math.min(30_000, Math.max(100, Math.floor(raw)));
-}
-
-/** True when `senderId` may interact with the bot. Empty list = allow all. */
-export function isUserAllowed(cfg: AppConfig, senderId: string): boolean {
-  const list = cfg.preferences?.access?.allowedUsers;
-  if (!list || list.length === 0) return true;
-  return list.includes(senderId);
-}
-
-/** True when `chatId` is one the bot will respond in. Empty list = allow all. */
-export function isChatAllowed(cfg: AppConfig, chatId: string): boolean {
-  const list = cfg.preferences?.access?.allowedChats;
-  if (!list || list.length === 0) return true;
-  return list.includes(chatId);
-}
-
-/** True when `senderId` has admin privileges. Empty list = no admin
- * restriction (every allowed user can run admin commands). */
-export function isAdmin(cfg: AppConfig, senderId: string): boolean {
-  const list = cfg.preferences?.access?.admins;
-  if (!list || list.length === 0) return true;
-  return list.includes(senderId);
 }
 
 export function getRunIdleTimeoutMs(cfg: AppConfig): number | undefined {

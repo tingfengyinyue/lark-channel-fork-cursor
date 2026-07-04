@@ -1,8 +1,9 @@
-import type { LarkChannel } from '@larksuiteoapi/node-sdk';
+import type { LarkChannel } from '@larksuite/channel';
 import { log } from '../core/logger';
 
 interface ManagedEntry {
-  cardId: string;
+  kind: 'card-id' | 'raw-card';
+  cardId?: string;
   sequence: number;
 }
 
@@ -16,55 +17,47 @@ export interface ManagedCardSendResult {
 }
 
 /**
- * Create a CardKit 2.0 card instance and send a message that references it.
+ * Create a CardKit 2.0 card entity and send a message that references it.
  * Returns both ids; we keep them in a module-local map so future cardAction
  * events can update the card by its messageId.
  *
- * If `replyTo` is provided, posts via im.v1.message.reply so the card threads
- * under the user's triggering message; otherwise posts as a top-level chat
- * message via im.v1.message.create.
+ * `recipientId` is routed by its id prefix (channel.send infers
+ * `receive_id_type`): `oc_*` → chat, `ou_*` → direct message to that user
+ * (Lark auto-resolves the p2p chat). If `replyTo` is provided, the card
+ * threads under that message — only meaningful for chat sends.
  */
 export async function sendManagedCard(
   channel: LarkChannel,
-  chatId: string,
+  recipientId: string,
   card: object,
-  replyTo?: string,
+  opts: { replyTo?: string; replyInThread?: boolean } = {},
 ): Promise<ManagedCardSendResult> {
-  const created = await channel.rawClient.cardkit.v1.card.create({
-    data: { type: 'card_json', data: JSON.stringify(card) },
-  });
-  const cardId = (created as { data?: { card_id?: string } }).data?.card_id;
-  if (!cardId) {
-    throw new Error(`cardkit.card.create returned no card_id: ${JSON.stringify(created).slice(0, 200)}`);
-  }
-
-  const content = JSON.stringify({ type: 'card', data: { card_id: cardId } });
-  let messageId: string | undefined;
-  if (replyTo) {
-    const sent = await channel.rawClient.im.v1.message.reply({
-      path: { message_id: replyTo },
-      data: { msg_type: 'interactive', content },
+  const { cardId } = await channel.createCard(card);
+  const sendOpts = opts.replyTo
+    ? { replyTo: opts.replyTo, ...(opts.replyInThread ? { replyInThread: true } : {}) }
+    : undefined;
+  let messageId: string;
+  try {
+    ({ messageId } = await channel.send(recipientId, { cardId }, sendOpts));
+  } catch (err) {
+    log.warn('card', 'managed-send-raw-fallback', {
+      err: err instanceof Error ? err.message : String(err),
+      replyTo: opts.replyTo,
+      replyInThread: opts.replyInThread === true,
     });
-    messageId = (sent as { data?: { message_id?: string } }).data?.message_id;
-  } else {
-    const sent = await channel.rawClient.im.v1.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: { receive_id: chatId, msg_type: 'interactive', content },
-    });
-    messageId = (sent as { data?: { message_id?: string } }).data?.message_id;
+    ({ messageId } = await channel.send(recipientId, { card }, sendOpts));
+    byMessageId.set(messageId, { kind: 'raw-card', sequence: 0 });
+    return { messageId, cardId };
   }
-  if (!messageId) {
-    throw new Error('send card-by-reference returned no message_id');
-  }
-
-  byMessageId.set(messageId, { cardId, sequence: 0 });
+  byMessageId.set(messageId, { kind: 'card-id', cardId, sequence: 0 });
   return { messageId, cardId };
 }
 
 /**
  * Update a managed card identified by the messageId of the message that
- * carries it. Auto-increments and tracks the per-card sequence so updates
- * can't be reordered or rejected by the cardkit server.
+ * carries it. CardKit card-id sends use the per-card sequence required by the
+ * card server; raw-card fallback sends can only be updated by messageId, so the
+ * local sequence is diagnostic metadata for that path.
  */
 export async function updateManagedCard(
   channel: LarkChannel,
@@ -77,15 +70,18 @@ export async function updateManagedCard(
   }
   entry.sequence += 1;
   try {
-    await channel.rawClient.cardkit.v1.card.update({
-      path: { card_id: entry.cardId },
-      data: {
-        card: { type: 'card_json', data: JSON.stringify(card) },
-        sequence: entry.sequence,
-      },
-    });
+    if (entry.kind === 'card-id') {
+      await channel.updateCardById(entry.cardId!, card, entry.sequence);
+    } else {
+      await channel.updateCard(messageId, card);
+    }
   } catch (err) {
-    log.fail('card', err, { step: 'managed-update', cardId: entry.cardId, seq: entry.sequence });
+    log.fail('card', err, {
+      step: 'managed-update',
+      kind: entry.kind,
+      cardId: entry.cardId,
+      seq: entry.sequence,
+    });
     throw err;
   }
 }

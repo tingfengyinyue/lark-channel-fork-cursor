@@ -1,6 +1,58 @@
-import { registerApp } from '@larksuiteoapi/node-sdk';
+import { registerApp } from '@larksuite/channel';
 import qrcode from 'qrcode-terminal';
 import type { AppConfig, TenantBrand } from '../config/schema';
+
+export interface ScopeGrantLink {
+  /** Authorization URL — opening it lands on the confirm page with the new
+   * scopes pre-filled as a diff against the existing app. */
+  url: string;
+  /** Seconds until the link expires. */
+  expireIn: number;
+  /** Resolves once the user finishes re-authorizing; rejects on
+   * expiry/abort/error. Detached callers can await this to confirm success. */
+  completion: Promise<void>;
+}
+
+/**
+ * Build an incremental-scope authorization link for an EXISTING app via
+ * `registerApp({ appId, addons })`. Unlike {@link runRegistrationWizard}
+ * (terminal QR for first-time creation), this is for the in-chat `/config`
+ * flow: we surface the URL the moment it's ready and push it to the user.
+ *
+ * The returned `completion` promise resolves only after the user authorizes,
+ * so callers can `void`-await it to send a follow-up confirmation.
+ *
+ * Domain is intentionally left unset — `registerApp` defaults to the Feishu
+ * auth host and auto-switches to Lark for international tenants (same as
+ * {@link runRegistrationWizard}), so callers don't pass a tenant.
+ */
+export async function requestScopeGrantLink(opts: {
+  appId: string;
+  /** App-identity (tenant) scopes to request, e.g. `['im:message.group_msg']`. */
+  tenantScopes: string[];
+  signal?: AbortSignal;
+}): Promise<ScopeGrantLink> {
+  return new Promise<ScopeGrantLink>((resolve, reject) => {
+    let urlDelivered = false;
+    // registerApp returns synchronously and fires onQRCodeReady later, so
+    // `completion` is assigned before the callback can reference it.
+    const completion = registerApp({
+      source: 'lark-channel-bridge',
+      appId: opts.appId,
+      addons: { scopes: { tenant: opts.tenantScopes } },
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      onQRCodeReady: (info) => {
+        urlDelivered = true;
+        resolve({ url: info.url, expireIn: info.expireIn, completion });
+      },
+    }).then(() => undefined);
+    // If registerApp rejects before ever delivering a URL (e.g. the initial
+    // `begin` request fails), surface that failure to the caller.
+    completion.catch((err) => {
+      if (!urlDelivered) reject(err);
+    });
+  });
+}
 
 export async function runRegistrationWizard(): Promise<AppConfig> {
   console.log('\n未检测到飞书应用配置，进入扫码创建向导。\n');
@@ -29,6 +81,25 @@ export async function runRegistrationWizard(): Promise<AppConfig> {
   console.log('\n✓ 应用创建成功');
   console.log(`  App ID:  ${result.client_id}`);
   console.log(`  Tenant:  ${tenant}`);
+  if (operatorOpenId) {
+    console.log(`  Creator: ${operatorOpenId} (Lark 应用 owner，自动豁免访问控制)`);
+  } else {
+    console.log('  ⚠️ 未拿到扫码用户的 open_id；启动后会通过应用 owner API 解析创建者。');
+  }
+
+  // No access fields are seeded here. The bot creator is resolved at
+  // runtime from the Lark application API (`application/v6/applications`),
+  // and the QR scanner is naturally the app's owner, so they'll get
+  // unconditional bypass on the very first message — no config edit needed.
+  // `allowedUsers` / `allowedChats` / `admins` stay empty (= nobody outside
+  // the creator) until the operator tightens via `/config`.
+  if (operatorOpenId) {
+    console.log(`  Creator: ${operatorOpenId} (Lark 应用 owner，自动豁免所有访问控制)`);
+  } else {
+    console.log(
+      '  ⚠️ 未拿到扫码用户的 open_id；首次启动时 bridge 会自行调 application/v6 API 解析当前 owner。',
+    );
+  }
 
   const cfg: AppConfig = {
     accounts: {
@@ -39,26 +110,6 @@ export async function runRegistrationWizard(): Promise<AppConfig> {
       },
     },
   };
-
-  // Bootstrap the QR scanner as the initial admin. Without this seed the
-  // /config gate stays open to everyone in any chat the bot joins, making
-  // it awkward to ever tighten things (the operator would need to hand-edit
-  // config.json to set the first admin).
-  //
-  // `allowedUsers` and `allowedChats` stay empty (unrestricted) by default
-  // so the bot remains inviteable and responds anywhere it's invited; the
-  // operator can tighten via /config later.
-  if (operatorOpenId) {
-    cfg.preferences = {
-      access: { admins: [operatorOpenId] },
-    };
-    console.log(`  Admin:   ${operatorOpenId} (你自己，已自动加入管理员名单)`);
-  } else {
-    console.log(
-      '  ⚠️ 未拿到扫码用户的 open_id；管理员列表留空 = 所有用户都能跑敏感命令。' +
-        '\n     你可以稍后在飞书发 /config 手动设置管理员。',
-    );
-  }
 
   console.log('');
   return cfg;

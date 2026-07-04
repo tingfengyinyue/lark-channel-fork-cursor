@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.corepack/
 *.log
 *.tsbuildinfo
 
@@ -13,6 +14,7 @@ coverage/
 .idea/
 .vscode/
 
-# Internal-only: dev smoke scripts and full changelog stay local, do not ship
+# Local maintenance scripts and unreleased changelog are not part of the package
 scripts/
 CHANGELOG.md
+tests-smoke/

@@ -70,17 +70,18 @@ export class CursorAdapter implements AgentAdapter {
     let child: CursorChild | undefined;
     let stopped = false;
 
-    const iterator = (async function* () {
+    const iterator: AsyncGenerator<AgentEvent> = (async function* () {
       for await (const ev of events) {
         if (ev.type === 'system' && 'child' in ev) {
           child = (ev as any).child;
           delete (ev as any).child;
         }
-        yield ev;
+        yield ev as AgentEvent;
       }
     })();
 
     return {
+      runId: opts.runId,
       events: iterator,
       async stop() {
         if (stopped || !child?.pid) return;
@@ -158,6 +159,7 @@ async function* runCursor(
     yield {
       type: 'error',
       message: err ? `failed to spawn cursor agent: ${err.message}` : 'spawn returned no pid',
+      terminationReason: 'failed',
     };
     return;
   }
@@ -191,8 +193,16 @@ async function* runCursor(
   if (exitCode !== 0 && exitCode !== null) {
     const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
     const detail = stderr ? `: ${stderr.slice(0, 500)}` : '';
-    yield { type: 'error', message: `cursor agent exited with code ${exitCode}${detail}` };
+    yield {
+      type: 'error',
+      message: `cursor agent exited with code ${exitCode}${detail}`,
+      terminationReason: 'failed',
+    };
   } else if (runtimeError) {
-    yield { type: 'error', message: `cursor agent runtime error: ${runtimeError.message}` };
+    yield {
+      type: 'error',
+      message: `cursor agent runtime error: ${runtimeError.message}`,
+      terminationReason: 'failed',
+    };
   }
 }
