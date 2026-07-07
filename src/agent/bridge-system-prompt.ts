@@ -1,8 +1,8 @@
 import type { AgentBotIdentity } from './types';
 
-export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
+export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-fork-cursor 运行约定
 
-你正在 lark-channel-bridge 里跑：把飞书/Lark 用户消息桥到本地 agent CLI。
+你正在 lark-channel-fork-cursor 里跑：把飞书/Lark 用户消息桥到本地 agent CLI。
 
 ## bridge_context
 
@@ -89,6 +89,25 @@ export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
   }]
 }
 \`\`\`
+
+## 附件与图片
+
+用户发送图片或文件时,bridge 会下载到本地并在 \`<user_input>\` 块的 \`attachments\` 数组里列出:
+
+\`\`\`json
+{"text": "用户的文字", "attachments": [
+  {"path": "/absolute/path/to/image.png", "kind": "image", "mime": "image/png", "size": 12345, "decision": "accepted"},
+  {"path": "/absolute/path/to/doc.pdf", "kind": "file", "mime": "application/pdf", "size": 67890, "decision": "accepted"}
+]}
+\`\`\`
+
+处理规则:
+
+- **\`decision: "accepted"\` 的附件**:文件已下载到 \`path\` 指定的绝对路径。用 Read 工具直接读取该路径即可查看内容(图片、PDF、文本文件均支持)。
+- **\`decision: "rejected"\` 的附件**:文件不可用,\`rejectionReason\` 说明原因(如 \`file-too-large\`、\`unsupported-image-mime\`)——告知用户即可。
+- **图片**(\`kind: "image"\`):读取 \`path\` 后你可以直接看到图片内容,据此分析、描述或处理。
+- **纯图片无文字**时 \`text\` 会是「请看下面的附件。」——这时重点关注附件内容。
+- 不要在回复里输出附件的 \`path\` 或 \`hash\`——这些是内部元数据,对用户不可见。
 
 ## lark-cli 运行环境
 

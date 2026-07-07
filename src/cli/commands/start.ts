@@ -1,9 +1,11 @@
 import dns from 'node:dns';
 import os from 'node:os';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import pkg from '../../../package.json';
 import { ClaudeAdapter } from '../../agent/claude/adapter';
 import { CodexAdapter } from '../../agent/codex/adapter';
+import { CursorAdapter } from '../../agent/cursor/adapter';
 import {
   AgentPreflightError,
   formatAgentPreflightDiagnostic,
@@ -120,7 +122,7 @@ export async function runStart(opts: StartOptions): Promise<void> {
     hostname: os.hostname(),
   });
 
-  let agent = createRuntimeAgent(profileConfig, { ...appPaths, configPath });
+  let agent = createRuntimeAgent(profileConfig, { ...appPaths, configPath }, cfg);
   const availability = await checkRuntimeAgentAvailability(agent);
   if (!availability.ok) {
     console.error(formatAgentPreflightDiagnostic(availability.diagnostic));
@@ -243,7 +245,7 @@ export async function runStart(opts: StartOptions): Promise<void> {
                 const nextAgent = createRuntimeAgent(nextRuntime.profileConfig, {
                   ...nextRuntime.appPaths,
                   configPath: nextRuntime.configPath,
-                });
+                }, next);
                 const nextAvailability = await checkRuntimeAgentAvailability(nextAgent);
                 if (!nextAvailability.ok) {
                   throw nextAvailability.error;
@@ -373,11 +375,21 @@ async function checkRuntimeAgentAvailability(agent: AgentAdapter): Promise<Agent
   if (agent.checkAvailability) return agent.checkAvailability();
   const ok = await agent.isAvailable();
   if (ok) return { ok: true };
+  const agentIdMap: Record<string, 'claude' | 'codex' | 'cursor'> = {
+    claude: 'claude',
+    codex: 'codex',
+    cursor: 'cursor',
+  };
+  const commandMap: Record<string, string> = {
+    claude: 'claude',
+    codex: 'codex',
+    cursor: 'cursor',
+  };
   const diagnostic = {
     code: 'agent-binary-not-found' as const,
-    agentId: agent.id === 'codex' ? 'codex' as const : 'claude' as const,
+    agentId: agentIdMap[agent.id] ?? 'claude' as const,
     agentName: agent.displayName,
-    command: agent.id === 'codex' ? 'codex' : 'claude',
+    command: commandMap[agent.id] ?? agent.id,
   };
   return {
     ok: false,
@@ -405,6 +417,7 @@ export function createRuntimeAgent(
     Partial<Pick<AppPaths, 'rootDir' | 'profile' | 'configFile' | 'larkCliConfigDir' | 'larkCliSourceConfigFile'>> & {
       configPath?: string;
     },
+  cfg?: AppConfig,
 ): AgentAdapter {
   const larkChannelConfigPath = appPaths.configPath ?? appPaths.configFile;
   const larkChannel =
@@ -435,7 +448,24 @@ export function createRuntimeAgent(
       larkChannel,
     });
   }
-  return new ClaudeAdapter({ larkChannel });
+
+  const cliProvider = cfg?.preferences?.cli?.provider ?? 'claude';
+  if (cliProvider === 'cursor') {
+    const cursorOpts = cfg?.preferences?.cli?.cursor;
+    const mediaDir = join(appPaths.profileDir, 'media');
+    return new CursorAdapter({
+      binary: cursorOpts?.binary,
+      mode: cursorOpts?.mode,
+      larkChannel,
+      additionalDirs: [mediaDir],
+    });
+  }
+
+  const claudeOpts = cfg?.preferences?.cli?.claude;
+  return new ClaudeAdapter({
+    binary: claudeOpts?.binary,
+    larkChannel,
+  });
 }
 
 /**
@@ -532,7 +562,7 @@ async function confirmStopRuntimeLockProcess(err: RuntimeLockConflictError): Pro
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error(
       `当前 ${err.kind === 'profile' ? 'profile' : 'app'} 已有 bridge 进程占用；` +
-        '非交互模式无法确认停止，请先用 `lark-channel-bridge ps` 查看并用 `lark-channel-bridge kill <bot id>` 停止后重试',
+        '非交互模式无法确认停止，请先用 `lark-channel-fork-cursor ps` 查看并用 `lark-channel-fork-cursor kill <bot id>` 停止后重试',
     );
   }
 

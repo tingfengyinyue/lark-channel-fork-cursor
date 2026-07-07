@@ -1,4 +1,5 @@
 import type { AgentKind } from '../config/profile-schema';
+import type { AppConfig, CliProvider } from '../config/schema';
 
 /**
  * Sentinel selection meaning "don't pass `--model`; let the agent CLI /
@@ -16,6 +17,22 @@ export interface ModelOption {
   value: string;
   /** Human-facing label shown in the `/config` picker. */
   label: string;
+}
+
+/**
+ * Determines the effective model catalog to use. When the CLI provider is
+ * `cursor`, the Cursor model catalog is used regardless of profile agentKind.
+ */
+export type ModelCatalogKind = 'claude' | 'codex' | 'cursor';
+
+export function getModelCatalogKind(
+  agentKind: AgentKind,
+  cfg?: AppConfig | { preferences?: { cli?: { provider?: CliProvider } } },
+): ModelCatalogKind {
+  if (agentKind === 'codex') return 'codex';
+  const provider = cfg?.preferences?.cli?.provider;
+  if (provider === 'cursor') return 'cursor';
+  return 'claude';
 }
 
 /**
@@ -43,9 +60,36 @@ const CODEX_MODELS: ModelOption[] = [
   { value: 'o3', label: 'o3' },
 ];
 
-/** The model picker options for a profile's agent kind. */
-export function supportedModels(agentKind: AgentKind): ModelOption[] {
-  return agentKind === 'codex' ? CODEX_MODELS : CLAUDE_MODELS;
+/**
+ * Cursor Agent models. Cursor supports models from multiple providers;
+ * we list the most commonly useful ones. Users can always set an arbitrary
+ * model id directly in config.json for models not listed here.
+ */
+const CURSOR_MODELS: ModelOption[] = [
+  { value: DEFAULT_MODEL, label: '跟随默认（Composer 2.5 Fast）' },
+  { value: 'auto', label: 'Auto（自动选择）' },
+  { value: 'composer-2.5-fast', label: 'Composer 2.5 Fast' },
+  { value: 'composer-2.5', label: 'Composer 2.5' },
+  { value: 'claude-opus-4-8-thinking-high', label: 'Opus 4.8 1M Thinking' },
+  { value: 'claude-opus-4-8-high', label: 'Opus 4.8 1M' },
+  { value: 'claude-sonnet-5-thinking-high', label: 'Sonnet 5 1M Thinking' },
+  { value: 'claude-sonnet-5-high', label: 'Sonnet 5 1M' },
+  { value: 'claude-4.6-opus-high-thinking', label: 'Opus 4.6 1M Thinking' },
+  { value: 'claude-4.6-sonnet-medium-thinking', label: 'Sonnet 4.6 1M Thinking' },
+  { value: 'gpt-5.5-medium', label: 'GPT-5.5 1M' },
+  { value: 'gpt-5.5-high', label: 'GPT-5.5 1M High' },
+  { value: 'gpt-5.4-high', label: 'GPT-5.4 1M High' },
+  { value: 'gpt-5.3-codex', label: 'Codex 5.3' },
+  { value: 'gpt-5.3-codex-high', label: 'Codex 5.3 High' },
+  { value: 'grok-4.3', label: 'Grok 4.3 1M' },
+  { value: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro' },
+];
+
+/** The model picker options for the given catalog kind. */
+export function supportedModels(catalogKind: ModelCatalogKind | AgentKind): ModelOption[] {
+  if (catalogKind === 'codex') return CODEX_MODELS;
+  if (catalogKind === 'cursor') return CURSOR_MODELS;
+  return CLAUDE_MODELS;
 }
 
 /** True when the selection means "use the agent default" (no `--model`). */
@@ -61,11 +105,11 @@ export function isDefaultModel(value: string | undefined): boolean {
  * fall back to {@link DEFAULT_MODEL}.
  */
 export function normalizeModelSelection(
-  agentKind: AgentKind,
+  catalogKind: ModelCatalogKind | AgentKind,
   value: string | undefined,
 ): string {
   if (isDefaultModel(value)) return DEFAULT_MODEL;
-  return supportedModels(agentKind).some((m) => m.value === value)
+  return supportedModels(catalogKind).some((m) => m.value === value)
     ? (value as string)
     : DEFAULT_MODEL;
 }
@@ -75,15 +119,15 @@ export function normalizeModelSelection(
  * the `--model` flag. Cross-agent / unknown values are treated as "default".
  */
 export function resolveModelArg(
-  agentKind: AgentKind,
+  catalogKind: ModelCatalogKind | AgentKind,
   value: string | undefined,
 ): string | undefined {
-  const normalized = normalizeModelSelection(agentKind, value);
+  const normalized = normalizeModelSelection(catalogKind, value);
   return normalized === DEFAULT_MODEL ? undefined : normalized;
 }
 
 /** Picker label for a stored value, for display in the saved-config card. */
-export function modelLabel(agentKind: AgentKind, value: string | undefined): string {
-  const normalized = normalizeModelSelection(agentKind, value);
-  return supportedModels(agentKind).find((m) => m.value === normalized)?.label ?? normalized;
+export function modelLabel(catalogKind: ModelCatalogKind | AgentKind, value: string | undefined): string {
+  const normalized = normalizeModelSelection(catalogKind, value);
+  return supportedModels(catalogKind).find((m) => m.value === normalized)?.label ?? normalized;
 }

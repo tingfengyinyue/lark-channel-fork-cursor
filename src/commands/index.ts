@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute } from 'node:path';
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
 import { claudeCapability, codexCapability } from '../agent/capability';
-import { DEFAULT_MODEL, normalizeModelSelection, supportedModels } from '../agent/models';
+import { DEFAULT_MODEL, getModelCatalogKind, normalizeModelSelection, supportedModels } from '../agent/models';
 import type { AgentAdapter } from '../agent/types';
 import type { ActiveRuns } from '../bot/active-runs';
 import {
@@ -1763,10 +1763,14 @@ async function showConfigForm(ctx: CommandContext): Promise<void> {
 
   const ms = getRunIdleTimeoutMs(ctx.controls.cfg);
   const access = ctx.controls.profileConfig.access;
+  const catalogKind = getModelCatalogKind(
+    ctx.controls.profileConfig.agentKind,
+    ctx.controls.cfg,
+  );
   const card = configFormCard({
-    agentKind: ctx.controls.profileConfig.agentKind,
+    modelCatalogKind: catalogKind,
     model: normalizeModelSelection(
-      ctx.controls.profileConfig.agentKind,
+      catalogKind,
       ctx.controls.cfg.preferences?.model,
     ),
     messageReply: getMessageReplyMode(ctx.controls.cfg),
@@ -1826,11 +1830,12 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
   // selection. Store `undefined` for the "default" sentinel to keep config
   // tidy (resolveModelArg treats both the same way).
   const agentKind = ctx.controls.profileConfig.agentKind;
+  const submitCatalogKind = getModelCatalogKind(agentKind, ctx.controls.cfg);
   const rawModel = String(fv.model ?? '').trim();
-  const modelValid = rawModel !== '' && supportedModels(agentKind).some((m) => m.value === rawModel);
+  const modelValid = rawModel !== '' && supportedModels(submitCatalogKind).some((m) => m.value === rawModel);
   const modelSelection = modelValid
     ? rawModel
-    : normalizeModelSelection(agentKind, ctx.controls.cfg.preferences?.model);
+    : normalizeModelSelection(submitCatalogKind, ctx.controls.cfg.preferences?.model);
   const model = modelSelection === DEFAULT_MODEL ? undefined : modelSelection;
   const rawCotMessages = String(fv.cot_messages ?? '').trim();
   const cotMessages =
@@ -1964,7 +1969,7 @@ async function submitConfig(ctx: CommandContext): Promise<void> {
       ctx,
       formMsgId,
       configSavedCard({
-        agentKind,
+        modelCatalogKind: submitCatalogKind,
         model: modelSelection,
         messageReply,
         showToolCalls,

@@ -1,49 +1,28 @@
-import type { ChildProcessByStdio } from 'node:child_process';
-import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { log } from '../../core/logger';
-import type { AgentAdapter, AgentEvent, AgentRun, AgentRunOptions } from '../types';
+import { mergeProcessEnv, spawnProcess, type SpawnedProcessByStdio } from '../../platform/spawn';
+import { prefixBridgeSystemPrompt } from '../bridge-system-prompt';
+import { buildLarkChannelEnv, type LarkChannelEnvContext } from '../lark-channel-env';
+import { checkAgentAvailability, type AgentAvailability } from '../preflight';
+import type {
+  AgentAdapter,
+  AgentBotIdentity,
+  AgentEvent,
+  AgentRun,
+  AgentRunOptions,
+} from '../types';
 import { translateEvent } from './stream-json';
 
 export interface CursorAdapterOptions {
   binary?: string;
   mode?: 'agent' | 'plan' | 'ask';
+  larkChannel?: LarkChannelEnvContext;
+  /** Extra directories to add to the Cursor workspace (e.g. media cache). */
+  additionalDirs?: string[];
 }
 
-type CursorChild = ChildProcessByStdio<null, Readable, Readable>;
-
-const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
-
-你正在 lark-channel-bridge 里跑：把飞书/Lark 用户消息桥到本地 \`agent\` CLI (Cursor Agent)。
-
-## bridge_context
-
-每条 user message 顶部会带一个 \`<bridge_context>\` 块：
-
-\`\`\`
-<bridge_context>
-chat_id: oc_xxx
-chat_type: p2p
-sender_id: ou_xxx
-sender_name: ...
-</bridge_context>
-\`\`\`
-
-里面是当前对话的 chat_id、chat 类型（p2p / group）、发送者。这些是 bridge 注入的元数据，**不要照抄、不要在你的回复里渲染**——它对用户不可见。
-
-## quoted_message
-
-如果用户用"引用回复"指向某条消息，bridge 会在 \`<bridge_context>\` 后注入一个 \`<quoted_message>\` 块：
-
-\`\`\`
-<quoted_message id="om_xxx" sender_id="ou_xxx" sender_name="..." created_at="..." type="text|merge_forward|...">
-（被引用消息的内容；merge_forward 类型会展开成 <forwarded_messages>...</forwarded_messages>）
-</quoted_message>
-\`\`\`
-
-这是用户**指向的对象**——用户的实际问题在它之后。回答时围绕这段内容展开；它也是 bridge 注入的元数据，**不要照抄 XML 标签**到回复里。
-`;
+type CursorChild = SpawnedProcessByStdio<Writable, Readable, Readable>;
 
 export class CursorAdapter implements AgentAdapter {
   readonly id = 'cursor';
@@ -51,122 +30,175 @@ export class CursorAdapter implements AgentAdapter {
 
   private readonly binary: string;
   private readonly mode: 'agent' | 'plan' | 'ask';
+  private readonly larkChannel: LarkChannelEnvContext | undefined;
+  private readonly additionalDirs: string[];
+  private botIdentity: AgentBotIdentity | undefined;
 
   constructor(opts: CursorAdapterOptions = {}) {
-    this.binary = opts.binary ?? 'agent';
+    this.binary = opts.binary ?? 'cursor';
     this.mode = opts.mode ?? 'agent';
+    this.larkChannel = opts.larkChannel;
+    this.additionalDirs = opts.additionalDirs ?? [];
+  }
+
+  setBotIdentity(identity: AgentBotIdentity): void {
+    this.botIdentity = identity;
   }
 
   async isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
-      const child = spawn(this.binary, ['--version'], { stdio: 'ignore' });
-      child.on('error', () => resolve(false));
-      child.on('exit', (code) => resolve(code === 0));
+    return (await this.checkAvailability()).ok;
+  }
+
+  async checkAvailability(): Promise<AgentAvailability> {
+    return checkAgentAvailability({
+      agentId: 'cursor' as any,
+      agentName: 'Cursor Agent',
+      command: this.binary,
+      binaryPath: this.binary,
+      args: ['agent', '--version'],
     });
   }
 
   run(opts: AgentRunOptions): AgentRun {
-    const events = runCursor(this.binary, this.mode, opts);
-    let child: CursorChild | undefined;
-    let stopped = false;
+    if (!opts.cwd) {
+      throw new Error('cwd is required for CursorAdapter.run');
+    }
 
-    const iterator: AsyncGenerator<AgentEvent> = (async function* () {
-      for await (const ev of events) {
-        if (ev.type === 'system' && 'child' in ev) {
-          child = (ev as any).child;
-          delete (ev as any).child;
-        }
-        yield ev as AgentEvent;
+    const args = [
+      'agent',
+      '--print',
+      '--output-format',
+      'stream-json',
+      '--force',
+      '--trust',
+    ];
+
+    for (const dir of this.additionalDirs) {
+      args.push('--add-dir', dir);
+    }
+
+    if (this.mode !== 'agent') {
+      args.push('--mode', this.mode);
+    }
+    if (opts.model) {
+      args.push('--model', opts.model);
+    }
+
+    const child = spawnProcess(this.binary, args, {
+      cwd: opts.cwd,
+      env: mergeProcessEnv(process.env, buildLarkChannelEnv(this.larkChannel)),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as CursorChild;
+
+    log.info('cursor', 'spawn', {
+      pid: child.pid ?? null,
+      cwd: opts.cwd,
+      mode: this.mode,
+      promptChars: opts.prompt.length,
+      model: opts.model,
+    });
+
+    const stderrChunks: Buffer[] = [];
+    let runtimeError: Error | null = null;
+    let stderrBuffer = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      stderrBuffer += chunk.toString('utf8');
+      let nl = stderrBuffer.indexOf('\n');
+      while (nl !== -1) {
+        const line = stderrBuffer.slice(0, nl);
+        stderrBuffer = stderrBuffer.slice(nl + 1);
+        if (line.trim()) log.warn('cursor', 'stderr', { line });
+        nl = stderrBuffer.indexOf('\n');
       }
-    })();
+    });
+
+    child.on('error', (err) => {
+      runtimeError = err;
+    });
+    child.on('exit', (code, signal) => {
+      log.info('cursor', 'exit', { pid: child.pid ?? null, code, signal });
+    });
+    child.stdin.on('error', (err: Error) => {
+      log.warn('cursor', 'stdin-error', { message: err.message });
+    });
+    const fullPrompt = prefixBridgeSystemPrompt(opts.prompt, this.botIdentity);
+    child.stdin.end(fullPrompt, 'utf8');
+
+    const stopGraceMs = opts.stopGraceMs ?? 5000;
 
     return {
       runId: opts.runId,
-      events: iterator,
+      events: createEventStream(child, stderrChunks, () => runtimeError),
       async stop() {
-        if (stopped || !child?.pid) return;
-        stopped = true;
-        const graceMs = opts.stopGraceMs ?? 2000;
-        log.info('cursor', 'stopping', { pid: child.pid, graceMs });
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        log.info('cursor', 'stop-sigterm', { pid: child.pid ?? null, graceMs: stopGraceMs });
         child.kill('SIGTERM');
-        await new Promise((resolve) => setTimeout(resolve, graceMs));
-        if (child.exitCode === null && child.signalCode === null) {
-          log.info('cursor', 'grace-expired-sigkill', {});
-          child.kill('SIGKILL');
-        }
-      },
-      async waitForExit(timeoutMs: number): Promise<boolean> {
-        if (!child?.pid) return true;
-        if (child.exitCode !== null || child.signalCode !== null) return true;
-        return new Promise((resolve) => {
+        await new Promise<void>((resolve) => {
           const timer = setTimeout(() => {
-            child!.off('exit', onExit);
-            resolve(false);
-          }, timeoutMs);
-          const onExit = () => {
+            if (child.exitCode === null && child.signalCode === null) {
+              log.warn('cursor', 'stop-sigkill', {
+                pid: child.pid ?? null,
+                graceMs: stopGraceMs,
+                reason: 'grace-period-expired',
+              });
+              child.kill('SIGKILL');
+            }
+            resolve();
+          }, stopGraceMs);
+          child.once('exit', () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+      },
+      waitForExit(timeoutMs: number): Promise<boolean> {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          return Promise.resolve(true);
+        }
+        return new Promise<boolean>((resolve) => {
+          const onExit = (): void => {
             clearTimeout(timer);
             resolve(true);
           };
-          child!.once('exit', onExit);
+          const timer = setTimeout(() => {
+            child.removeListener('exit', onExit);
+            resolve(false);
+          }, timeoutMs);
+          child.once('exit', onExit);
         });
       },
     };
   }
 }
 
-async function* runCursor(
-  binary: string,
-  mode: 'agent' | 'plan' | 'ask',
-  opts: AgentRunOptions,
-): AsyncGenerator<AgentEvent | { type: 'system'; child: CursorChild }, void, undefined> {
-  const args = ['--print', '--output-format', 'stream-json'];
-
-  // Add mode if not default agent mode
-  if (mode !== 'agent') {
-    args.push('--mode', mode);
-  }
-
-  // Add model if specified
-  if (opts.model) {
-    args.push('--model', opts.model);
-  }
-
-  // Add initial prompt
-  const fullPrompt = BRIDGE_SYSTEM_PROMPT + '\n\n' + opts.prompt;
-  args.push(fullPrompt);
-
-  log.info('cursor', 'spawn', { args: args.slice(0, 3).join(' ') + ' [prompt...]' });
-
-  const stderrChunks: Buffer[] = [];
-  let spawnError: Error | undefined;
-
-  const child = spawn(binary, args, {
-    cwd: opts.cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }) as CursorChild;
-
-  child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-  child.on('error', (err) => {
-    spawnError = err;
-  });
-
-  const getError = () => spawnError;
-
-  yield { type: 'system', child };
-
+async function* createEventStream(
+  child: CursorChild,
+  stderrChunks: Buffer[],
+  getError: () => Error | null,
+): AsyncGenerator<AgentEvent> {
   if (!child.pid) {
     const err = getError();
     yield {
       type: 'error',
-      message: err ? `failed to spawn cursor agent: ${err.message}` : 'spawn returned no pid',
+      message: err ? `failed to spawn cursor: ${err.message}` : 'spawn returned no pid',
       terminationReason: 'failed',
     };
     return;
   }
 
   const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  let sawStdout = false;
+  let silentExitTimer: ReturnType<typeof setTimeout> | undefined;
+  const closeSilentStdout = (): void => {
+    silentExitTimer = setTimeout(() => {
+      if (!sawStdout && !child.stdout.readableEnded) child.stdout.destroy();
+    }, 50);
+  };
+  child.once('exit', closeSilentStdout);
   try {
     for await (const line of rl) {
+      sawStdout = true;
       const trimmed = line.trim();
       if (!trimmed) continue;
       let parsed: unknown;
@@ -178,7 +210,19 @@ async function* runCursor(
       yield* translateEvent(parsed);
     }
   } finally {
+    if (silentExitTimer) clearTimeout(silentExitTimer);
+    child.removeListener('exit', closeSilentStdout);
     rl.close();
+  }
+
+  const earlyRuntimeError = getError();
+  if (earlyRuntimeError && child.exitCode === null && child.signalCode === null) {
+    yield {
+      type: 'error',
+      message: `cursor runtime error: ${earlyRuntimeError.message}`,
+      terminationReason: 'failed',
+    };
+    return;
   }
 
   const exitCode = await new Promise<number | null>((resolve) => {
@@ -189,20 +233,21 @@ async function* runCursor(
     }
   });
 
-  const runtimeError = getError();
+  const runtimeErrorFinal = getError();
   if (exitCode !== 0 && exitCode !== null) {
     const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
     const detail = stderr ? `: ${stderr.slice(0, 500)}` : '';
     yield {
       type: 'error',
-      message: `cursor agent exited with code ${exitCode}${detail}`,
+      message: `cursor exited with code ${exitCode}${detail}`,
       terminationReason: 'failed',
     };
-  } else if (runtimeError) {
+  } else if (runtimeErrorFinal) {
     yield {
       type: 'error',
-      message: `cursor agent runtime error: ${runtimeError.message}`,
+      message: `cursor runtime error: ${runtimeErrorFinal.message}`,
       terminationReason: 'failed',
     };
   }
 }
+

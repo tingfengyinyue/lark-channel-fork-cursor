@@ -35,6 +35,7 @@ describe('bot run observability', () => {
       access: { ok: true, reason: 'allowed-user' },
       capability: claudeCapability(h.profileConfig),
       profileConfig: h.profileConfig,
+      modelCatalogKind: 'claude',
       sessions: h.sessions,
       workspaces: h.workspaces,
       executor: h.executor,

@@ -8,7 +8,7 @@ import { paths } from '../config/paths';
  * unit name. Single-instance for now; if we ever support multiple bots
  * per machine the suffix can grow `.{appid}` without breaking installs.
  */
-export const SERVICE_NAME = 'lark-channel-bridge.bot';
+export const SERVICE_NAME = 'lark-channel-cursor.bot';
 
 export function serviceProfileId(profile: string): string {
   const trimmed = profile.trim();

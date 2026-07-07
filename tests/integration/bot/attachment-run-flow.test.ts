@@ -50,6 +50,7 @@ describe('attachment run flow', () => {
       access: { ok: true, reason: 'allowed-user' },
       capability: codexCapability(h.profileConfig),
       profileConfig: h.profileConfig,
+      modelCatalogKind: 'codex',
       sessions: h.sessions,
       workspaces: h.workspaces,
       executor: h.executor,

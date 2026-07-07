@@ -18,3 +18,8 @@ coverage/
 scripts/
 CHANGELOG.md
 tests-smoke/
+
+# Runtime secrets and local state
+secrets.enc
+.keystore.salt
+TESTING.md

@@ -249,6 +249,7 @@ async function start(h: Awaited<ReturnType<typeof createHarness>>) {
         ? codexCapability(h.profileConfig)
         : claudeCapability(h.profileConfig),
     profileConfig: h.profileConfig,
+    modelCatalogKind: h.profileConfig.agentKind === 'codex' ? 'codex' : 'claude',
     sessions: h.sessions,
     sessionCatalog: h.catalog,
     workspaces: h.workspaces,

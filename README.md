@@ -1,12 +1,16 @@
-# lark-channel-bridge
+# lark-channel-fork-cursor
+
+> Forked from [lark-channel-bridge](https://github.com/nicepkg/lark-channel-bridge), with Cursor Agent support and multi-CLI extensions.
 
 A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code, Codex, or Cursor Agent CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
 
 > **🆕 Multi-CLI Support**: This fork adds support for multiple AI CLI tools. Switch between Claude Code and Cursor Agent with a simple command!
 
-[中文 README](./README.zh.md) | [Multi-CLI Documentation](./MULTI_CLI_SUPPORT.md) | [Testing Guide](./TESTING.md)
+[中文 README](./README.zh.md) | [Multi-CLI Documentation](./MULTI_CLI_SUPPORT.md)
 
 For a product walkthrough, see the [Feishu document](https://larkcommunity.feishu.cn/docx/OaRIdFIRFoLM3xxTmKwcetHqn5e).
+
+> **🖥️ Web Dashboard**: Use [Lark Channel Hub](https://github.com/nicepkg/lark-channel-hub) to manage your bridge instances from a browser — create agents via QR code, monitor status, edit config, and browse chat history.
 
 ## What it does
 
@@ -32,15 +36,15 @@ For a product walkthrough, see the [Feishu document](https://larkcommunity.feish
 ## Install
 
 ```bash
-npm i -g lark-channel-bridge
+npm i -g lark-channel-fork-cursor
 # or
-pnpm add -g lark-channel-bridge
+pnpm add -g lark-channel-fork-cursor
 ```
 
 ## First run
 
 ```bash
-lark-channel-bridge run
+lark-channel-fork-cursor run
 ```
 
 The first run opens a QR-code wizard:
@@ -56,9 +60,9 @@ You do not need to choose a project directory up front. The bridge creates a pro
 If you already have a PersonalAgent app, pass `--app-id` during initialization to skip app creation. The command prompts for the App Secret.
 
 ```bash
-lark-channel-bridge run --app-id cli_xxx
+lark-channel-fork-cursor run --app-id cli_xxx
 # or initialize and start the background service directly
-lark-channel-bridge start --app-id cli_xxx
+lark-channel-fork-cursor start --app-id cli_xxx
 ```
 
 For Lark global apps, add `--tenant lark`.
@@ -68,9 +72,9 @@ For Lark global apps, add `--tenant lark`.
 Use `run` for first-run setup and foreground debugging. After the bot can send and receive messages, stop the foreground process with `Ctrl-C`, then use an OS-managed service for background operation:
 
 ```bash
-lark-channel-bridge start
-lark-channel-bridge status
-lark-channel-bridge stop
+lark-channel-fork-cursor start
+lark-channel-fork-cursor status
+lark-channel-fork-cursor stop
 ```
 
 Install globally before using service commands. The daemon's launchd plist / systemd unit / Windows task records the bridge CLI path; if that path comes from an npm temp cache through `npx`, the daemon can break when the cache is cleaned. `run` is fine through `npx` as a one-shot foreground process.
@@ -78,16 +82,16 @@ Install globally before using service commands. The daemon's launchd plist / sys
 Service commands install a per-profile service:
 
 ```bash
-lark-channel-bridge start [--profile <name>]
-lark-channel-bridge stop [--profile <name>]
-lark-channel-bridge restart [--profile <name>]
-lark-channel-bridge status [--profile <name>]
-lark-channel-bridge unregister [--profile <name>]
+lark-channel-fork-cursor start [--profile <name>]
+lark-channel-fork-cursor stop [--profile <name>]
+lark-channel-fork-cursor restart [--profile <name>]
+lark-channel-fork-cursor status [--profile <name>]
+lark-channel-fork-cursor unregister [--profile <name>]
 ```
 
 Platform mapping:
-- **macOS**: launchd user agent `ai.lark-channel-bridge.bot.<profile>`
-- **Linux**: systemd user unit `lark-channel-bridge.bot.<profile>.service`
+- **macOS**: launchd user agent `ai.lark-channel-fork-cursor.bot.<profile>`
+- **Linux**: systemd user unit `lark-channel-fork-cursor.bot.<profile>.service`
 - **Windows**: Task Scheduler task `LarkChannelBridge.Bot.<profile>`, launched through a `.cmd` wrapper
 
 Daemon logs are under `~/.lark-channel/profiles/<profile>/logs/daemon/`.
@@ -97,15 +101,15 @@ Daemon logs are under `~/.lark-channel/profiles/<profile>/logs/daemon/`.
 By default, the bridge starts with the currently selected profile. Use `profile use <name>` to change it. Each profile keeps its own app credentials, sessions, working directories, and logs. Create multiple profiles only when you need to connect multiple PersonalAgent apps, or run Claude and Codex as separate bots:
 
 ```bash
-lark-channel-bridge start --profile claude --agent claude
-lark-channel-bridge start --profile codex --agent codex
+lark-channel-fork-cursor start --profile claude --agent claude
+lark-channel-fork-cursor start --profile codex --agent codex
 ```
 
 For example, to restart only the Codex bot:
 
 ```bash
-lark-channel-bridge restart --profile codex
-lark-channel-bridge status --profile codex
+lark-channel-fork-cursor restart --profile codex
+lark-channel-fork-cursor status --profile codex
 ```
 
 ## Commands
@@ -113,24 +117,24 @@ lark-channel-bridge status --profile codex
 ### Host CLI
 
 ```text
-lark-channel-bridge run [--profile <name>] [--agent claude|codex] [--workspace <path>] [-c <config>]
-lark-channel-bridge migrate [--profile <name>] [--agent claude|codex]
-lark-channel-bridge ps
-lark-channel-bridge kill <id|#>
-lark-channel-bridge --help
+lark-channel-fork-cursor run [--profile <name>] [--agent claude|codex] [--workspace <path>] [-c <config>]
+lark-channel-fork-cursor migrate [--profile <name>] [--agent claude|codex]
+lark-channel-fork-cursor ps
+lark-channel-fork-cursor kill <id|#>
+lark-channel-fork-cursor --help
 ```
 
 `profile use <name>` changes the profile used by later default starts. Use these profile management commands when running separate Claude / Codex bots, connecting multiple PersonalAgent apps, or doing scripted deployment:
 
 ```bash
-lark-channel-bridge profile create claude --agent claude
-lark-channel-bridge profile create codex --agent codex
-lark-channel-bridge profile list
-lark-channel-bridge profile use <name>
-lark-channel-bridge profile remove <name>
-lark-channel-bridge profile remove <name> --purge --yes
-lark-channel-bridge profile export <name> [--output ./profile.json] [--force]
-lark-channel-bridge profile export <name> --include-secrets --yes
+lark-channel-fork-cursor profile create claude --agent claude
+lark-channel-fork-cursor profile create codex --agent codex
+lark-channel-fork-cursor profile list
+lark-channel-fork-cursor profile use <name>
+lark-channel-fork-cursor profile remove <name>
+lark-channel-fork-cursor profile remove <name> --purge --yes
+lark-channel-fork-cursor profile export <name> [--output ./profile.json] [--force]
+lark-channel-fork-cursor profile export <name> --include-secrets --yes
 ```
 
 `profile remove` archives local state by default, including the active profile. If other profiles remain, the bridge switches to the next one; if it was the last profile, the root config is cleared so the same name can be created again. `--purge --yes` permanently deletes local state. `profile export` redacts app secrets by default; `--include-secrets --yes` includes sensitive config.
@@ -334,13 +338,13 @@ By default the bridge reports **nothing**: no metrics, no logs leave your machin
 To wire up your own monitoring, point an environment variable at a module that default-exports (or exports `createAdapter`) an `AdapterFactory`:
 
 ```bash
-LARK_CHANNEL_TELEMETRY_MODULE=your-telemetry-package lark-channel-bridge start
+LARK_CHANNEL_TELEMETRY_MODULE=your-telemetry-package lark-channel-fork-cursor start
 ```
 
 That module receives every `log.*` event plus error/metric hooks and forwards them wherever you like. The interface is exported from the package root:
 
 ```ts
-import type { AdapterFactory, TelemetryAdapter, TelemetryEvent } from 'lark-channel-bridge';
+import type { AdapterFactory, TelemetryAdapter, TelemetryEvent } from 'lark-channel-fork-cursor';
 
 const createAdapter: AdapterFactory = (meta) => ({
   emit(event) {/* ship event */},

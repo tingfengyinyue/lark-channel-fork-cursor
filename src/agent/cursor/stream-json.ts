@@ -19,7 +19,14 @@ interface CursorRawEvent {
   cwd?: string;
   model?: string;
   message?: { content?: ContentBlock[] };
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadTokens?: number;
+    cache_read_input_tokens?: number;
+  };
   total_cost_usd?: number;
 }
 
@@ -70,8 +77,9 @@ export function* translateEvent(raw: unknown): Generator<AgentEvent> {
     if (evt.usage) {
       yield {
         type: 'usage',
-        inputTokens: evt.usage.input_tokens,
-        outputTokens: evt.usage.output_tokens,
+        inputTokens: evt.usage.input_tokens ?? evt.usage.inputTokens,
+        outputTokens: evt.usage.output_tokens ?? evt.usage.outputTokens,
+        cachedInputTokens: evt.usage.cache_read_input_tokens ?? evt.usage.cacheReadTokens,
         costUsd: evt.total_cost_usd,
       };
     }

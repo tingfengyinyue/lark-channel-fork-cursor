@@ -1,5 +1,5 @@
 import type { AgentCapability } from '../agent/capability';
-import { resolveModelArg } from '../agent/models';
+import { resolveModelArg, type ModelCatalogKind } from '../agent/models';
 import type { AgentEvent } from '../agent/types';
 import type { ProfileConfig } from '../config/profile-schema';
 import type { AccessDecision } from '../policy/access';
@@ -29,6 +29,8 @@ export interface StartRunFlowInput {
   access: AccessDecision;
   capability: AgentCapability;
   profileConfig: ProfileConfig;
+  /** Effective model catalog kind — determines which model catalog to validate against. */
+  modelCatalogKind: ModelCatalogKind;
   sessions: SessionStore;
   sessionCatalog?: SessionCatalog;
   workspaces: WorkspaceStore;
@@ -145,7 +147,7 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
       sessionId,
       threadId,
       model: resolveModelArg(
-        input.profileConfig.agentKind,
+        input.modelCatalogKind,
         input.profileConfig.preferences.model,
       ),
       images:

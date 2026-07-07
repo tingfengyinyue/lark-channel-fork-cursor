@@ -1,11 +1,11 @@
-import { modelLabel, supportedModels } from '../agent/models';
+import { modelLabel, supportedModels, type ModelCatalogKind } from '../agent/models';
 import type { KnownChat } from '../bot/lark-info';
-import type { AgentKind, LarkCliIdentityPreset } from '../config/profile-schema';
+import type { LarkCliIdentityPreset } from '../config/profile-schema';
 import type { CotMessagesMode, MessageReplyMode } from '../config/schema';
 
 export interface ConfigFormOpts {
-  /** Profile's agent kind — decides which model catalog the picker shows. */
-  agentKind: AgentKind;
+  /** Effective model catalog kind — decides which model catalog the picker shows. */
+  modelCatalogKind: ModelCatalogKind;
   /** Current model selection (a value from {@link supportedModels}). */
   model: string;
   messageReply: MessageReplyMode;
@@ -119,7 +119,7 @@ export function configFormCard(opts: ConfigFormOpts): object {
               tag: 'select_static',
               name: 'model',
               initial_option: opts.model,
-              options: supportedModels(opts.agentKind).map((m) => ({
+              options: supportedModels(opts.modelCatalogKind).map((m) => ({
                 text: { tag: 'plain_text', content: m.label },
                 value: m.value,
               })),
@@ -301,7 +301,7 @@ export function configSavedCard(opts: ConfigFormOpts): object {
           tag: 'markdown',
           content:
             '✅ **偏好已保存**\n\n' +
-            `**模型**:\`${modelLabel(opts.agentKind, opts.model)}\`\n` +
+            `**模型**:\`${modelLabel(opts.modelCatalogKind, opts.model)}\`\n` +
             `**消息回复方式**:${replyLabel}\n` +
             `**工具调用显示**:\`${opts.showToolCalls ? 'show' : 'hide'}\`\n` +
             `**COT 过程消息**:\`${cotLabel}\`\n` +

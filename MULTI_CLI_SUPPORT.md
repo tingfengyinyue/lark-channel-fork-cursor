@@ -1,6 +1,6 @@
 # 多 CLI 支持功能
 
-本 fork 为 `lark-channel-bridge` 添加了对多个 AI CLI 工具的支持，允许在 Claude Code 和 Cursor Agent 之间切换。
+本 fork 为 `lark-channel-fork-cursor` 添加了对多个 AI CLI 工具的支持，允许在 Claude Code 和 Cursor Agent 之间切换。
 
 ## 新增功能
 
@@ -95,7 +95,7 @@ Cursor Agent 支持三种工作模式：
 ### 本地安装
 
 ```bash
-cd ~/lark-channel-bridge-fork
+cd /path/to/lark-channel-fork-cursor
 pnpm install
 pnpm build
 npm link
@@ -110,7 +110,7 @@ npm link
 
 2. 启动 bridge：
    ```bash
-   lark-channel-bridge start
+   lark-channel-fork-cursor start
    ```
 
 3. 在飞书中测试：

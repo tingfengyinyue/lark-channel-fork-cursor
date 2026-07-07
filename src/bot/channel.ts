@@ -6,7 +6,7 @@ import type {
 import { createLarkChannel } from '@larksuite/channel';
 import { dirname, join } from 'node:path';
 import { claudeCapability, codexCapability } from '../agent/capability';
-import { modelLabel, normalizeModelSelection, resolveModelArg } from '../agent/models';
+import { getModelCatalogKind, modelLabel, normalizeModelSelection, resolveModelArg } from '../agent/models';
 import {
   buildAgentPrompt,
   type BridgePromptInteractiveCard,
@@ -232,7 +232,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
       cfg.accounts.app.tenant === 'lark'
         ? 'https://open.larksuite.com'
         : 'https://open.feishu.cn',
-    source: 'lark-channel-bridge',
+    source: 'lark-channel-fork-cursor',
     logger: buildQuietLogger(),
     policy: {
       dmMode: 'open',
@@ -776,15 +776,16 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // changed. `requestedModel` (the `--model` value, or undefined for default)
   // is reused below to log requested-vs-actual against the init event.
   const agentKind = controls.profileConfig.agentKind;
+  const catalogKind = getModelCatalogKind(agentKind, controls.cfg);
   const modelPref = controls.profileConfig.preferences.model;
-  const modelSelection = normalizeModelSelection(agentKind, modelPref);
-  const requestedModel = resolveModelArg(agentKind, modelPref);
+  const modelSelection = normalizeModelSelection(catalogKind, modelPref);
+  const requestedModel = resolveModelArg(catalogKind, modelPref);
   const prevModel = lastRunModelByScope.get(scope);
   const modelSwitched = prevModel !== undefined && prevModel !== modelSelection;
   lastRunModelByScope.set(scope, modelSelection);
   const extraInstructions = modelSwitched
     ? [
-        `用户刚把本会话使用的模型切换为「${modelLabel(agentKind, modelPref)}」。` +
+        `用户刚把本会话使用的模型切换为「${modelLabel(catalogKind, modelPref)}」。` +
           '之前的对话里可能提到别的模型,请以当前模型为准;若被问到你用的是什么模型,据此回答。',
       ]
     : undefined;
@@ -834,6 +835,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     access: accessDecision,
     capability,
     profileConfig: controls.profileConfig,
+    modelCatalogKind: catalogKind,
     sessions,
     sessionCatalog,
     workspaces,
