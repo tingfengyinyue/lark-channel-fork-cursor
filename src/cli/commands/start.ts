@@ -1,4 +1,5 @@
 import dns from 'node:dns';
+import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -453,6 +454,7 @@ export function createRuntimeAgent(
   if (cliProvider === 'cursor') {
     const cursorOpts = cfg?.preferences?.cli?.cursor;
     const mediaDir = join(appPaths.profileDir, 'media');
+    try { mkdirSync(mediaDir, { recursive: true }); } catch {}
     return new CursorAdapter({
       binary: cursorOpts?.binary,
       mode: cursorOpts?.mode,
