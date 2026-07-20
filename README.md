@@ -4,7 +4,7 @@
 
 A lightweight bot that bridges Feishu / Lark messenger with your local Claude Code, Codex, or Cursor Agent CLI. Run one command, scan a QR code to bind a PersonalAgent app, and talk to your local coding agent from chat.
 
-> **🆕 Multi-CLI Support**: This fork adds support for multiple AI CLI tools. Switch between Claude Code and Cursor Agent with a simple command!
+> **🆕 Multi-CLI Support**: This fork adds support for multiple AI CLI tools — Claude Code, Cursor Agent, and Codex. Switch between them with a simple command!
 
 [中文 README](./README.zh.md) | [Multi-CLI Documentation](./MULTI_CLI_SUPPORT.md)
 

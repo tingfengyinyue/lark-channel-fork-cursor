@@ -4,7 +4,7 @@
 
 把飞书 / Lark 消息和本地 Claude Code、Codex 或 Cursor Agent CLI 打通的轻量 bot。用一条命令启动，扫码绑定 PersonalAgent 应用，然后在飞书里和本机编程助手对话，让它读图、处理文件、改代码。
 
-> **🆕 多 CLI 支持**：本 fork 增加了多 AI CLI 工具支持，可在 Claude Code 和 Cursor Agent 之间自由切换！
+> **🆕 多 CLI 支持**：本 fork 增加了多 AI CLI 工具支持，可在 Claude Code、Cursor Agent 和 Codex 之间自由切换！
 
 [English README](./README.md) | [多 CLI 文档](./MULTI_CLI_SUPPORT.md)
 

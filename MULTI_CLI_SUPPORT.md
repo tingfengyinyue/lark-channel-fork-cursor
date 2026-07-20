@@ -1,6 +1,6 @@
 # 多 CLI 支持功能
 
-本 fork 为 `lark-channel-fork-cursor` 添加了对多个 AI CLI 工具的支持，允许在 Claude Code 和 Cursor Agent 之间切换。
+本 fork 为 `lark-channel-fork-cursor` 添加了对多个 AI CLI 工具的支持，允许在 Claude Code、Cursor Agent 和 Codex 之间切换。
 
 ## 新增功能
 
@@ -8,6 +8,7 @@
 
 - **Claude Code** (`claude`) - Anthropic 官方 CLI
 - **Cursor Agent** (`agent`) - Cursor 的命令行 AI 工具
+- **Codex** (`codex`) - OpenAI Codex CLI
 
 ### 2. 配置方式
 
@@ -17,13 +18,16 @@
 {
   "preferences": {
     "cli": {
-      "provider": "claude",  // "claude" 或 "cursor"
+      "provider": "claude",  // "claude" | "cursor" | "codex"
       "claude": {
         "binary": "claude"   // 可选，自定义 claude 命令路径
       },
       "cursor": {
         "binary": "agent",   // 可选，自定义 agent 命令路径
         "mode": "agent"      // "agent" | "plan" | "ask"
+      },
+      "codex": {
+        "binary": "codex"    // 可选，自定义 codex 命令路径
       }
     }
   }
@@ -35,7 +39,7 @@
 新增 `/cli` 命令用于管理 CLI 切换：
 
 - `/cli` 或 `/cli status` - 查看当前使用的 CLI
-- `/cli use <claude|cursor>` - 切换 CLI（需要重启生效）
+- `/cli use <claude|cursor|codex>` - 切换 CLI（需要重启生效）
 - `/cli mode <agent|plan|ask>` - 设置 Cursor 模式（仅 Cursor 可用）
 
 ### 4. Cursor 模式说明
@@ -124,7 +128,7 @@ npm link
 
 - 向后兼容：未配置 `cli` 时默认使用 Claude Code
 - Node.js >= 20
-- 需要安装对应的 CLI 工具（`claude` 或 `agent`）
+- 需要安装对应的 CLI 工具（`claude`、`agent` 或 `codex`）
 
 ## 贡献
 
